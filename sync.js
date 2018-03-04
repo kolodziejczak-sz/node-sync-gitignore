@@ -5,8 +5,6 @@ const path = require("path");
 const ignore = require('ignore');
 const os = require('os');
 
-let watcher;
-
 
 function start() {
   const args = process.argv.slice(2);
@@ -23,7 +21,7 @@ function initializeWatcher(source, target, ignoreFilesSource = '.gitignore') {
     console.log('Initializating sync', source, 'to', target);
     const filesToIgnore = getFilesToIgnore(ignoreFilesSource).concat(ignoreFilesSource);
     const ig = ignore().add(filesToIgnore);
-    watcher = chokidar
+    const watcher = chokidar
       .watch(source, {
         persistent: true,
         ignored: new RegExp(filesToIgnore.join('|'))
