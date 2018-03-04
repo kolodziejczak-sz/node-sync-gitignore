@@ -5,18 +5,26 @@ const path = require("path");
 const ignore = require('ignore');
 const os = require('os');
 
-function initializeWatcher(source, target, ignoreFilesSource) {
+let watcher;
+
+
+function start() {
+  const args = process.argv.slice(2);
+  initializeWatcher.apply(null, args);
+}
+
+function initializeWatcher(source, target, ignoreFilesSource = '.gitignore') {
   const sourceExists = fse.pathExistsSync(source);
   if(!sourceExists) {
-    console.error('Source does not exists');
+    console.error('Source does not exists.');
     return;
-  } 
+  }
   try {
-    console.log('Initializating sync...', [source, target]);
-    const filesToIgnore = getFilesToIgnore(ignoreFilesSource);
+    console.log('Initializating sync', source, 'to', target);
+    const filesToIgnore = getFilesToIgnore(ignoreFilesSource).concat(ignoreFilesSource);
     const ig = ignore().add(filesToIgnore);
-    const watcher = chokidar
-      .watch(source, { 
+    watcher = chokidar
+      .watch(source, {
         persistent: true,
         ignored: new RegExp(filesToIgnore.join('|'))
       })
@@ -27,19 +35,14 @@ function initializeWatcher(source, target, ignoreFilesSource) {
       .on("change", watcherCopy(source, target, ig))
       .on("unlink", watcherRemove(source, target))
       .on("unlinkDir", watcherRemove(source, target));
-  } 
+  }
   catch(e) {
     console.log(e);
   }
 }
 
-function start() {
-  const args = process.argv.slice(2);
-  initializeWatcher.apply(null, args);
-}
-
 function watcherReady() {
-  return () => console.log('Sync is ready.')
+  return () => console.log('Sync is ready.');
 }
 
 function watcherError() {
@@ -47,10 +50,8 @@ function watcherError() {
 }
 
 function watcherCopy(source, target, ignore) {
-  return (file) => { 
-    const targetPath = path.join(target, path.relative(source, file))
-    // avoid copying source folder with all subitems which could be on ignore list.
-    if(targetPath === target) return;
+  return (file) => {
+    const targetPath = path.join(target, path.relative(source, file));
     copy(file, targetPath, ignore);
   };
 }
@@ -79,7 +80,7 @@ function remove(file) {
   }
 }
 
-function shouldCopy(ig, src) {
+function shouldCopy(ig, src) { 
   return (!isDirectory(src) && !ig.ignores(src));
 }
 
@@ -91,16 +92,16 @@ function isDirectory(path) {
   }
 }
 
-function getFilesToIgnore(filename = '.gitignore') {
+function getFilesToIgnore(filename) {
   try {
     return fse
       .readFileSync(filename)
       .toString()
       .split(os.EOL)
       .filter(isPath)
-      .map(row => row.trim());
-  } catch(e) {    
-    console.log('Couldnt parse '+ filename + '.', e);
+      .map(row => row.trim())
+  } catch(e) {
+    console.log('Parsing', filename, 'failed. No single file is ignored.');
     return [];
   }
 }
