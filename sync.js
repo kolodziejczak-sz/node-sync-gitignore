@@ -8,10 +8,10 @@ const os = require('os');
 
 function start() {
   const args = process.argv.slice(2);
-  initializeWatcher.apply(null, args);
+  initializeWatcher(...args);
 }
 
-function initializeWatcher(source, target, ignoreFilesSource = '.gitignore') {
+function initializeWatcher(source, target, gitignoreFileName = '.gitignore') {
   const sourceExists = fse.pathExistsSync(source);
   if(!sourceExists) {
     console.error('Source does not exists.');
@@ -19,18 +19,15 @@ function initializeWatcher(source, target, ignoreFilesSource = '.gitignore') {
   }
   try {
     console.log('Initializating sync', source, 'to', target);
-    const filesToIgnore = getFilesToIgnore(ignoreFilesSource).concat(ignoreFilesSource);
-    const ig = ignore().add(filesToIgnore);
+    const gitignorePath = path.join(source, gitignoreFileName);
+    const gitignoreParser = initializeGitIgnoreParser(gitignorePath);
     const watcher = chokidar
-      .watch(source, {
-        persistent: true,
-        ignored: new RegExp(filesToIgnore.join('|'))
-      })
+      .watch(source, { persistent: true })
       .on("ready", watcherReady())
       .on("error", watcherError())
-      .on("add", watcherCopy(source, target, ig))
-      .on("addDir", watcherCopy(source, target, ig))
-      .on("change", watcherCopy(source, target, ig))
+      .on("add", watcherCopy(source, target, gitignoreParser))
+      .on("addDir", watcherCopy(source, target, gitignoreParser))
+      .on("change", watcherCopy(source, target, gitignoreParser))
       .on("unlink", watcherRemove(source, target))
       .on("unlinkDir", watcherRemove(source, target));
   }
@@ -49,8 +46,9 @@ function watcherError() {
 
 function watcherCopy(source, target, ignore) {
   return (file) => {
-    const targetPath = path.join(target, path.relative(source, file));
-    copy(file, targetPath, ignore);
+    const relativeFilePath = path.relative(source, file);
+    const targetPath = path.join(target, relativeFilePath);
+    copy(file, targetPath, relativeFilePath, ignore);
   };
 }
 
@@ -58,28 +56,27 @@ function watcherRemove(source, target) {
   return (file) => remove(path.join(target, path.relative(source, file)));
 }
 
-function copy(source, target, ig) {
-  if(!shouldCopy(ig, source)) return;
-  try {
-    fse.copySync(source, target);
-    console.log('coppied:', source, ' --> ', target);  
-  } 
-  catch (e) {
-    console.log('copying failed with error code ', e.code);
-  }
+function copy(source, target, relativeFilePath, ig) {
+  if(!shouldCopy(ig, source, relativeFilePath)) return;
+  fse.copy(source, target, err => {
+    if(err) {
+      return console.log('copying failed with error code ', err.code);
+    }
+    console.log('coppied:', source, ' --> ', target); 
+  });
 }
 
 function remove(file) {
-  try {
-    fse.removeSync(file);
+  fse.remove(file, err => {
+    if(err) {
+      console.log('error', e);
+    }
     console.log('removed', file);
-  } catch (e) {
-    console.log('error', e);
-  }
+  });
 }
 
-function shouldCopy(ig, src) { 
-  return (!isDirectory(src) && !ig.ignores(src));
+function shouldCopy(ig, src, relativeFilePath) { 
+  return (!isDirectory(src) && !ig.ignores(relativeFilePath));
 }
 
 function isDirectory(path) {
@@ -90,12 +87,17 @@ function isDirectory(path) {
   }
 }
 
-function getFilesToIgnore(filename) {
+function initializeGitIgnoreParser(filepath) {
+  const gitIgnorePatterns = getFilesToIgnore(filepath).concat(filepath);
+  return ignore().add(gitIgnorePatterns);
+}
+
+function getFilesToIgnore(filepath) {
   try {
     return fse
-      .readFileSync(filename)
+      .readFileSync(filepath)
       .toString()
-      .split(os.EOL)
+      .split('\n')
       .filter(isPath)
       .map(row => row.trim())
   } catch(e) {
